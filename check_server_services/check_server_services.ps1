@@ -16,7 +16,8 @@
 $warningPreference = "Continue"
 $errorActionPreference = "Continue"
 
-# change these 2 variables accordingly, include all of your servers, not just DMZ servers
+# change the $ping_list and $fname variables accordingly, include all of your servers, not just DMZ servers
+# optional: use list_vm_servers.ps1 to append VMs to $ping_list
 $ping_list = @( "ad1", "ad2", "exchange", "www", "sql1" )
 $fname = "services.tsv"
 
@@ -83,20 +84,21 @@ if( $not_running.Length -gt 0 ) {
 	add-content $output " `r`n"
 }
 
+$num = $ping_list.Length
 add-content $output ""
 add-content $output "$good services are running, $bad services are not running."
 add-content $output "Run the script by hand for more details on the services not running."
 add-content $output ""
 add-content $output ""
-add-content $output "Ping Results"
-add-content $output "-------------------"
+add-content $output "Ping Results ( $num servers )"
+add-content $output "--------------------------------"
 
 foreach($i in $ping_list) {
 	$result = ping-ip $i
 	if( $result -eq $false ) {
 		$success = $false
 	}
-	add-content $output "$i `t $result"
+	add-content $output "$result `t $i"
 }
 add-content $output ""
 add-content $output ""
