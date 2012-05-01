@@ -82,9 +82,6 @@ global $all_pids_output = ObjCreate("Scripting.Dictionary")
 ; lower right try icon, for status updates
 global $tray
 
-; number of jobs that have finished running
-global $job_end = 0
-
 ; total number of files that will be processed
 global $total_jobs = 0
 
@@ -113,11 +110,11 @@ endfunc
 
 func multiprocess()
 	global $cpu_count, $exe, $in_pattern, $out_pattern, $finished, $all_pids, $all_pids_output, $tray
-	global $flist, $flist_count, $pid, $job, $job_end, $total_jobs
+	global $flist, $flist_count, $pid, $job, $total_jobs
 	local $i, $curr, $args, $myin_pattern, $myout_pattern
 	local $input, $base, $ext
 	local $szDrive, $szDir, $base, $ext
-	local $cmd
+	local $cmd, $fp
 
 	for $i = 0 to $cpu_count-1
 		if not ProcessExists( $pid[$i] ) then
@@ -145,6 +142,14 @@ func multiprocess()
 					$curr = Run($cmd, "", @SW_HIDE, $STDOUT_CHILD)
 				endif
 				_ArrayAdd($all_pids, $curr)
+				;$fp = fileopen("dbg.txt", 1)
+				;FileWriteLine($fp, $curr & "  " & $myout_pattern)
+				;FileClose($fp)
+
+				; if you have a large number of files to process, PIDs can be duplicated
+				if $all_pids_output.Exists($curr) then
+					$all_pids_output.Remove($curr)
+				endif
 				$all_pids_output.Add($curr, $myout_pattern)
 				$finished += 1
 				$job[$i] += 1
@@ -162,8 +167,6 @@ func multiprocess()
 			if StringLen($line) > 0 then
 				FileWriteLine($all_pids_output.Item($all_pids[$i]), $line)
 				$all_pids[$i] = - 1
-				$job_end += 1
-				TraySetToolTip( ubound($all_pids) & " jobs started, " & $job_end & " jobs finished.")
 			endif
 		next
 	endif
