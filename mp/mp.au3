@@ -13,13 +13,12 @@ cmd-line arguments:
 
 1) the program executable to run in parallel
 2) input pattern, in double quotes
-	a) _input_    the filename plus extension matched by the wildcard file in_patterns
+	a) _input_    the filename plus extension matched by the wildcard file pattern in (4)
 	b) _base_     the filename without the extension
 	c) _ext_      only the file's extension without a leading dot
-3) output pattern, use -- for no output.
-3) wildcard file in_pattern #1
-4) wildcard file in_pattern #2
-5) wildcard file in_pattern etc.
+3) output pattern, use -- for no output (two dashes).
+4) wildcard pattern #1, wildcard pattern #2, etc  If -fromfile:items.txt is used, for example,
+   then files names are read from items.txt.
 
 icon used: http://www.iconarchive.com/show/angry-birds-icons-by-fasticon/red-bird-icon.html
 
@@ -142,9 +141,6 @@ func multiprocess()
 					$curr = Run($cmd, "", @SW_HIDE, $STDOUT_CHILD)
 				endif
 				_ArrayAdd($all_pids, $curr)
-				;$fp = fileopen("dbg.txt", 1)
-				;FileWriteLine($fp, $curr & "  " & $myout_pattern)
-				;FileClose($fp)
 
 				; if you have a large number of files to process, PIDs can be duplicated
 				if $all_pids_output.Exists($curr) then
@@ -175,16 +171,31 @@ endfunc
 
 func main()
 	global $flist, $cpu_count, $pid, $exe, $finished, $all_pids, $tray, $total_jobs
-	local $all_flist, $item
+	local $all_flist, $item, $from_fname
+
 	if ( $CmdLine[0] < 4 ) then
-		MsgBox(0,"Usage",@ScriptName & @CRLF & "mp - multiprocess" & @CRLF & "----------------------------" & @CRLF & "Runs a (command line) program in parallel on a group of similar files." & @CRLF & @CRLF & "Command line arguments:" & @CRLF & @CRLF & "(1) [ command-executable ]" & @CRLF &  "(2) [ input pattern ]" & @CRLF & "(3) [ output pattern ]   Use -- for no output files" & @CRLF & "(4) [ file mask 1] [ file mask 2] ..." & @CRLF & @CRLF & "Patterns:" & @CRLF & @CRLF & "_input_    the filename plus extension matched by the wildcard file pattern in (4)" & @CRLF & "_base_     the filename without the extension" & @CRLF & "_ext_        only the file's extension without a leading dot" & @CRLF & @CRLF & "Examples:" & @CRLF & @CRLF & '1) mp "bzip2 -9"  _input_  --  a*.txt' & @CRLF & "    compress text files starting with 'a', no output files" & @CRLF & @CRLF & '2) mp  "C:\Pgm Files\ImageMagick\convert.exe"  "_input_ _base_.tiff"  --  *.png' & @CRLF & "    convert PNG files to TIFF, no output files " & @CRLF & @CRLF & '3) mp  sha1sum.exe  _input_  _base_.sha  *.dat' & @CRLF & "    checksum all *.dat files, place results in individual *.sha files" )
+		MsgBox(0,"Usage",@ScriptName & @CRLF & "mp - multiprocess" & @CRLF & "----------------------------" & @CRLF & "Runs a (command line) program in parallel on a group of similar files." & @CRLF & @CRLF & "Command line arguments:" & @CRLF & @CRLF & "(1) [ command-executable ]" & @CRLF &  "(2) [ input pattern ]" & @CRLF & "(3) [ output pattern ]   Use -- for no output files" & @CRLF & "(4) [ file mask 1] [ file mask 2] ..." & @CRLF & '      or use   -fromfile:"c:\pgm data\list.txt"   (file names are read from list.txt)' & @CRLF & @CRLF & "Patterns:" & @CRLF & @CRLF & "_input_    the filename plus extension matched by the wildcard file pattern in (4)" & @CRLF & "_base_     the filename without the extension" & @CRLF & "_ext_        only the file's extension without a leading dot" & @CRLF & @CRLF & "Examples:" & @CRLF & @CRLF & '1) mp "bzip2 -9"  _input_  --  a*.txt' & @CRLF & "    compress text files starting with 'a', no output files" & @CRLF & @CRLF & '2) mp  "C:\Pgm Files\ImageMagick\convert.exe"  "_input_ _base_.tiff"  --  *.png' & @CRLF & "    convert PNG files to TIFF, no output files " & @CRLF & @CRLF & '3) mp  sha1sum.exe  _input_  _base_.sha  *.dat' & @CRLF & "    checksum all *.dat files, place results in individual *.sha files" & @CRLF & @CRLF & "** Hover over red bird system tray icon for status.")
 		exit
 	endif
+
+	$exe = $CmdLine[1]
+	$in_pattern = $CmdLine[2]
+	$out_pattern = $CmdLine[3]
 
 	$tray = TrayCreateItem("")
 	TraySetState()
 
-	$all_flist = create_file_lists()
+	if StringLeft($CmdLine[4],10) == "-fromfile:" then
+		$from_fname = StringMid($CmdLine[4],11)
+		_FileReadToArray($from_fname, $all_flist)
+		if @error then
+			MsgBox(16,"Error", "Unable to read file: " & $from_fname)
+			exit
+		endif
+	else
+		$all_flist = create_file_lists()
+	endif
+
 	if ubound($all_flist) == 0 then
 		MsgBox(16,"Error", "No files matched your criteria.")
 		exit
@@ -212,10 +223,6 @@ func main()
 		endif
 	wend
 	
-	$exe = $CmdLine[1]
-	$in_pattern = $CmdLine[2]
-	$out_pattern = $CmdLine[3]
-
 	do
 		multiprocess()
 		sleep(200)
@@ -235,8 +242,6 @@ func main()
 			sleep(200)
 		next
 	endif
-
-	;MsgBox(0,"Finished", $finished & " jobs completed.")
 endfunc
 
 main()
