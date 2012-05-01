@@ -2,7 +2,7 @@
 #cs
 mp.au3 (multi-process)
 -John Taylor
-Apr-30-2012
+May-01-2012
 
 Documentation
 -------------
@@ -12,37 +12,41 @@ I have tested this with 2 CPU and 16 CPU systems.
 cmd-line arguments:
 
 1) the program executable to run in parallel
-2) pattern, in double quotes
-	a) _input_    the filename plus extension matched by the wildcard file patterns
+2) input pattern, in double quotes
+	a) _input_    the filename plus extension matched by the wildcard file in_patterns
 	b) _base_     the filename without the extension
 	c) _ext_      only the file's extension without a leading dot
-3) wildcard file pattern #1
-4) wildcard file pattern #2
-5) wildcard file pattern etc.
+3) output pattern, use -- for no output.
+3) wildcard file in_pattern #1
+4) wildcard file in_pattern #2
+5) wildcard file in_pattern etc.
 
 icon used: http://www.iconarchive.com/show/angry-birds-icons-by-fasticon/red-bird-icon.html
 
 Examples
 ---------
-mp.exe "C:\Program Files\ImageMagick\convert.exe" "_input_ _base_.tiff" *.png
-This will convert all PNG files to tiff files, which will have the same base name
+mp.exe "C:\Program Files\ImageMagick\convert.exe" "_input_ _base_.tiff" -- *.png
+This will convert all PNG files to tiff files, which will have the same base name.
+No output files will be created.
 
-mp.exe bzip2 "-9 _input_" a*.txt
+mp.exe "bzip2 -9" "_input_" -- a*.txt
 This will compress all text files starting with "a"
+No output files will be created.
 
-To do
------
-1) error checking
-2) have a status for the tray icon, # of jobs completed & remaining
-3) save output of each command
+mp.exe "sha1sum" "_input_" "_base_.sha" *.dat
+This will checksum all *.dat files and place the results in individual *.sha files.
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 #ce
 
-
+#notrayicon
 Opt("MustDeclareVars",1)
+Opt("TrayMenuMode", 1)
+
 #include <File.au3>
 #include <Array.au3>
+#include <Constants.au3>
 
 ; number of `threads' to use
 global $cpu_count = EnvGet("NUMBER_OF_PROCESSORS")
@@ -63,11 +67,27 @@ global $job[$cpu_count]
 ; the acutal command to be run
 global $exe
 
-; cmd line file replacement pattern
-global $pattern
+; cmd line file replacement
+global $in_pattern, $out_pattern
 
 ; total number of jobs send to the Run() function
 global $finished = 0
+
+; record all Run() PIDs so that their output can be captured
+global $all_pids[1]
+
+; the actual text output of each Run() operation
+global $all_pids_output = ObjCreate("Scripting.Dictionary")
+
+; lower right try icon, for status updates
+global $tray
+
+; number of jobs that have finished running
+global $job_end = 0
+
+; total number of files that will be processed
+global $total_jobs = 0
+
 
 func create_file_lists()
 	local $i, $curr, $count
@@ -75,26 +95,26 @@ func create_file_lists()
 	$all[0] = 0
 
 	$count = 0
-	for $i = 3 to $CmdLine[0] ; start at 3 b/c 1=exe 2=replacement-pattern 3,4,5,etc=filenames
-		;MsgBox(0,$i,$CmdLine[$i])
+	for $i = 4 to $CmdLine[0] ; start at 4 b/c 1=exe 2=in_pattern 3=out_pattern 4,5,6,etc=filenames
 		$curr = _FileListToArray(".", $CmdLine[$i], 1)
+		if(@error) then
+			continueloop
+		endif
 		$count += $curr[0]
 		$all[0] = $count
-		;_ArrayDisplay($curr)
 		_ArrayConcatenate($all,$curr,1)
 	next
 
 	_ArrayDelete($all,0)
 	$all = _ArrayUnique($all,1)
-	;_ArrayDisplay($all)
 	
 	return $all
 endfunc
 
 func multiprocess()
-	global $cpu_count, $exe, $pattern, $finished
-	global $flist, $flist_count, $pid, $job
-	local $i, $curr, $args, $mypattern
+	global $cpu_count, $exe, $in_pattern, $out_pattern, $finished, $all_pids, $all_pids_output, $tray
+	global $flist, $flist_count, $pid, $job, $job_end, $total_jobs
+	local $i, $curr, $args, $myin_pattern, $myout_pattern
 	local $input, $base, $ext
 	local $szDrive, $szDir, $base, $ext
 	local $cmd
@@ -107,35 +127,67 @@ func multiprocess()
 				_PathSplit($input, $szDrive, $szDir, $base, $ext)
 				$ext = StringMid($ext,2)
 
-				$mypattern = $pattern
-				$mypattern = StringReplace($mypattern,"_input_", $input)
-				$mypattern = StringReplace($mypattern,"_base_", $base)
-				$mypattern = StringReplace($mypattern,"_ext_", $ext)
+				$myin_pattern = $in_pattern
+				$myin_pattern = StringReplace($myin_pattern,"_input_", $input)
+				$myin_pattern = StringReplace($myin_pattern,"_base_", $base)
+				$myin_pattern = StringReplace($myin_pattern,"_ext_", $ext)
 
-				$cmd = $exe & " " & $mypattern
-				;MsgBox(0,"cmd", $cmd)
-				$curr = Run($cmd, "", @SW_HIDE)
+
+				$myout_pattern = $out_pattern
+				$myout_pattern = StringReplace($myout_pattern,"_input_", $input)
+				$myout_pattern = StringReplace($myout_pattern,"_base_", $base)
+				$myout_pattern = StringReplace($myout_pattern,"_ext_", $ext)
+
+				$cmd = $exe & " " & $myin_pattern
+				if $out_pattern == "--" then
+					$curr = Run($cmd, "", @SW_HIDE)
+				else
+					$curr = Run($cmd, "", @SW_HIDE, $STDOUT_CHILD)
+				endif
+				_ArrayAdd($all_pids, $curr)
+				$all_pids_output.Add($curr, $myout_pattern)
 				$finished += 1
 				$job[$i] += 1
 				$pid[$i] = $curr
+				TraySetToolTip( $finished & " jobs started, " & ($total_jobs - $finished) & " jobs remaining.")
 			endif
 		endif
 	next
+	
+	; check for output on any completed Run() operations
+	if $out_pattern <> "--" then
+		local $line
+		for $i = 1 to ubound($all_pids) - 1
+			$line = StdOutRead($all_pids[$i])
+			if StringLen($line) > 0 then
+				FileWriteLine($all_pids_output.Item($all_pids[$i]), $line)
+				$all_pids[$i] = - 1
+				$job_end += 1
+				TraySetToolTip( ubound($all_pids) & " jobs started, " & $job_end & " jobs finished.")
+			endif
+		next
+	endif
 endfunc
 	
 
 func main()
-	global $flist, $cpu_count, $pid, $exe, $finished
+	global $flist, $cpu_count, $pid, $exe, $finished, $all_pids, $tray, $total_jobs
 	local $all_flist, $item
-	if ( $CmdLine[0] < 3 ) then
-		MsgBox(0,"Usage",@ScriptName & "[ command executable ] [ pattern ] [ file mask 1] [ file mask 2] ...")
+	if ( $CmdLine[0] < 4 ) then
+		MsgBox(0,"Usage",@ScriptName & @CRLF & "mp - multiprocess" & @CRLF & "----------------------------" & @CRLF & "Runs a (command line) program in parallel on a group of similar files." & @CRLF & @CRLF & "Command line arguments:" & @CRLF & @CRLF & "(1) [ command-executable ]" & @CRLF &  "(2) [ input pattern ]" & @CRLF & "(3) [ output pattern ]   Use -- for no output files" & @CRLF & "(4) [ file mask 1] [ file mask 2] ..." & @CRLF & @CRLF & "Patterns:" & @CRLF & @CRLF & "_input_    the filename plus extension matched by the wildcard file pattern in (4)" & @CRLF & "_base_     the filename without the extension" & @CRLF & "_ext_        only the file's extension without a leading dot" & @CRLF & @CRLF & "Examples:" & @CRLF & @CRLF & '1) mp "bzip2 -9"  _input_  --  a*.txt' & @CRLF & "    compress text files starting with 'a', no output files" & @CRLF & @CRLF & '2) mp  "C:\Pgm Files\ImageMagick\convert.exe"  "_input_ _base_.tiff"  --  *.png' & @CRLF & "    convert PNG files to TIFF, no output files " & @CRLF & @CRLF & '3) mp  sha1sum.exe  _input_  _base_.sha  *.dat' & @CRLF & "    checksum all *.dat files, place results in individual *.sha files" )
 		exit
 	endif
 
-	TrayCreateItem("")
+	$tray = TrayCreateItem("")
 	TraySetState()
 
 	$all_flist = create_file_lists()
+	if ubound($all_flist) == 0 then
+		MsgBox(16,"Error", "No files matched your criteria.")
+		exit
+	endif
+
+	$total_jobs = $all_flist[0]
 	
 	for $i = 0 to $cpu_count-1
 		ReDim $flist[ubound($flist,1)][(ubound($all_flist) / $cpu_count) + 1]
@@ -148,9 +200,7 @@ func main()
 	local $j = 0
 	while ubound($all_flist) > 1
 		$item = _ArrayPop($all_flist)
-		;MsgBox(0,$i,$item)
 		$j=$flist_count[$i]
-		;Msgbox(0,"index", $i & " " & $j)
 		$flist[$i][$j] = $item
 		$flist_count[$i] += 1
 		$i += 1
@@ -158,15 +208,30 @@ func main()
 			$i = 0
 		endif
 	wend
-	;_ArrayDisplay($flist)
 	
 	$exe = $CmdLine[1]
-	$pattern = $CmdLine[2]
+	$in_pattern = $CmdLine[2]
+	$out_pattern = $CmdLine[3]
 
 	do
 		multiprocess()
-		sleep(250)
+		sleep(200)
 	until $finished = $all_flist[0]
+
+	; check for output on any outstanding Run() operations
+	if $out_pattern <> "--" then
+		local $line, $j
+		for $j = 1 to  5
+			for $i = 1 to ubound($all_pids) - 1
+				$line = StdOutRead($all_pids[$i])
+				if StringLen($line) > 0 then
+					FileWriteLine($all_pids_output.Item($all_pids[$i]), $line)
+					$all_pids[$i] = - 1
+				endif
+			next
+			sleep(200)
+		next
+	endif
 
 	;MsgBox(0,"Finished", $finished & " jobs completed.")
 endfunc
