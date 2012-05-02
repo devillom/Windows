@@ -18,13 +18,13 @@ mkdir combined 2> nul
 
 rem create a mirrored image
 for %%f in (*.jpg) do (
-	@echo convert %%f -flop %DITHER% mirrored\mirrored_%%f
+	convert %%f -flop %DITHER% mirrored\mirrored_%%f
 )
 
 
 rem append mirrored image to the left of the original image
 for %%f in (*.jpg) do (
-	@echo convert %%f mirrored\mirrored_%%f +append combined\combined_%%f
+	convert %%f mirrored\mirrored_%%f +append combined\combined_%%f
 )
 
 @echo.
